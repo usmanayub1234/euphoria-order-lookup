@@ -1,0 +1,9 @@
+{
+  "name": "euphoria-order-lookup",
+  "version": "1.0.0",
+  "description": "Order lookup API for shopateuphoria.com",
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  }
+}
