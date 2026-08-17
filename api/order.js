@@ -1,5 +1,5 @@
 // api/order.js — Vercel Serverless Function
-// Uses Basic Auth with Client ID + Client Secret (Shopify Dev Dashboard apps)
+// Uses SHOPIFY_ACCESS_TOKEN (shpat_...) from environment variables
 
 export default async function handler(req, res) {
 
@@ -15,11 +15,10 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Order number and email are required' });
   }
 
-  const shop         = process.env.SHOPIFY_SHOP;
-  const clientId     = process.env.SHOPIFY_CLIENT_ID;
-  const clientSecret = process.env.SHOPIFY_CLIENT_SECRET;
+  const shop        = process.env.SHOPIFY_SHOP;
+  const accessToken = process.env.SHOPIFY_ACCESS_TOKEN;
 
-  if (!shop || !clientId || !clientSecret) {
+  if (!shop || !accessToken) {
     return res.status(500).json({ error: 'Server configuration missing' });
   }
 
@@ -31,16 +30,13 @@ export default async function handler(req, res) {
       'line_items','fulfillments','shipping_address'
     ].join(',');
 
-    // Basic Auth: base64(clientId:clientSecret)
-    const basicAuth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
-
     const url = `https://${shop}/admin/api/2024-01/orders.json`
       + `?name=${encodeURIComponent(number)}&status=any&fields=${fields}`;
 
     const orderRes = await fetch(url, {
       headers: {
-        'Authorization': `Basic ${basicAuth}`,
-        'Content-Type':  'application/json',
+        'X-Shopify-Access-Token': accessToken,
+        'Content-Type': 'application/json',
       },
     });
 
@@ -57,7 +53,6 @@ export default async function handler(req, res) {
     const data   = await orderRes.json();
     const orders = data.orders || [];
 
-    // Match by email (case-insensitive)
     const order = orders.find(o =>
       o.email && o.email.toLowerCase() === email.toLowerCase().trim()
     );
