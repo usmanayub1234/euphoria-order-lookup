@@ -1,5 +1,5 @@
 // api/order.js — Vercel Serverless Function
-// Uses Shopify Client ID + Client Secret (new Dev Dashboard flow)
+// Uses Basic Auth with Client ID + Client Secret (Shopify Dev Dashboard apps)
 
 export default async function handler(req, res) {
 
@@ -15,59 +15,43 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Order number and email are required' });
   }
 
-  const shop         = process.env.SHOPIFY_SHOP;          // shopateuphoria.myshopify.com
-  const clientId     = process.env.SHOPIFY_CLIENT_ID;     // from Dev Dashboard
-  const clientSecret = process.env.SHOPIFY_CLIENT_SECRET; // from Dev Dashboard
+  const shop         = process.env.SHOPIFY_SHOP;
+  const clientId     = process.env.SHOPIFY_CLIENT_ID;
+  const clientSecret = process.env.SHOPIFY_CLIENT_SECRET;
 
   if (!shop || !clientId || !clientSecret) {
     return res.status(500).json({ error: 'Server configuration missing' });
   }
 
   try {
-    // ── Step 1: Get access token using Client Credentials ──
-    const tokenRes = await fetch(`https://${shop}/admin/oauth/access_token`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        client_id:     clientId,
-        client_secret: clientSecret,
-        grant_type:    'client_credentials',
-      }),
-    });
-
-    // If client_credentials flow not supported, fall back to Basic Auth
-    let accessToken = null;
-
-    if (tokenRes.ok) {
-      const tokenData = await tokenRes.json();
-      accessToken = tokenData.access_token;
-    } else {
-      // Fallback: use client secret directly as token (works for some Dev Dashboard apps)
-      accessToken = clientSecret;
-    }
-
-    // ── Step 2: Fetch order from Shopify Admin API ──
     const fields = [
-      'id', 'order_number', 'name', 'email',
-      'created_at', 'financial_status', 'fulfillment_status',
-      'cancelled_at', 'total_price', 'currency',
-      'line_items', 'fulfillments', 'shipping_address'
+      'id','order_number','name','email',
+      'created_at','financial_status','fulfillment_status',
+      'cancelled_at','total_price','currency',
+      'line_items','fulfillments','shipping_address'
     ].join(',');
 
-    const orderUrl = `https://${shop}/admin/api/2024-01/orders.json`
+    // Basic Auth: base64(clientId:clientSecret)
+    const basicAuth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+
+    const url = `https://${shop}/admin/api/2024-01/orders.json`
       + `?name=${encodeURIComponent(number)}&status=any&fields=${fields}`;
 
-    const orderRes = await fetch(orderUrl, {
+    const orderRes = await fetch(url, {
       headers: {
-        'X-Shopify-Access-Token': accessToken,
-        'Content-Type': 'application/json',
+        'Authorization': `Basic ${basicAuth}`,
+        'Content-Type':  'application/json',
       },
     });
 
     if (!orderRes.ok) {
       const errText = await orderRes.text();
-      console.error('Shopify Admin API error:', orderRes.status, errText);
-      return res.status(502).json({ error: 'Failed to fetch order from Shopify' });
+      console.error('Shopify error:', orderRes.status, errText);
+      return res.status(502).json({
+        error: 'Failed to fetch from Shopify',
+        status: orderRes.status,
+        detail: errText
+      });
     }
 
     const data   = await orderRes.json();
@@ -82,7 +66,6 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Order not found' });
     }
 
-    // ── Step 3: Return clean response ──
     return res.status(200).json({
       order_number:       order.name || ('#' + order.order_number),
       created_at:         order.created_at,
@@ -109,6 +92,6 @@ export default async function handler(req, res) {
 
   } catch (err) {
     console.error('Unhandled error:', err);
-    return res.status(500).json({ error: 'Internal server error' });
+    return res.status(500).json({ error: 'Internal server error', detail: err.message });
   }
 }
