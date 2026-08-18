@@ -1,5 +1,5 @@
 // api/order.js — Vercel Serverless Function
-// Uses SHOPIFY_ACCESS_TOKEN (shpat_...) from environment variables
+// Search by: Order Number + (Email OR Phone)
 
 export default async function handler(req, res) {
 
@@ -10,9 +10,14 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'GET')    return res.status(405).json({ error: 'Method not allowed' });
 
-  const { number, email } = req.query;
-  if (!number || !email) {
-    return res.status(400).json({ error: 'Order number and email are required' });
+  const { number, email, phone } = req.query;
+
+  // Must have order number + at least one of email or phone
+  if (!number) {
+    return res.status(400).json({ error: 'Order number is required' });
+  }
+  if (!email && !phone) {
+    return res.status(400).json({ error: 'Email or phone number is required' });
   }
 
   const shop        = process.env.SHOPIFY_SHOP;
@@ -24,7 +29,7 @@ export default async function handler(req, res) {
 
   try {
     const fields = [
-      'id','order_number','name','email',
+      'id','order_number','name','email','phone',
       'created_at','financial_status','fulfillment_status',
       'cancelled_at','total_price','currency',
       'line_items','fulfillments','shipping_address'
@@ -53,9 +58,24 @@ export default async function handler(req, res) {
     const data   = await orderRes.json();
     const orders = data.orders || [];
 
-    const order = orders.find(o =>
-      o.email && o.email.toLowerCase() === email.toLowerCase().trim()
-    );
+    // Match by email OR phone (case-insensitive)
+    const order = orders.find(o => {
+      // Normalize phone: remove spaces, dashes, parentheses
+      const normalize = (p) => (p || '').replace(/[\s\-\(\)\+]/g, '').toLowerCase();
+
+      const emailMatch = email && o.email &&
+        o.email.toLowerCase() === email.toLowerCase().trim();
+
+      const phoneMatch = phone && (
+        // Match order email field
+        (o.phone && normalize(o.phone) === normalize(phone)) ||
+        // Match shipping address phone
+        (o.shipping_address && o.shipping_address.phone &&
+          normalize(o.shipping_address.phone) === normalize(phone))
+      );
+
+      return emailMatch || phoneMatch;
+    });
 
     if (!order) {
       return res.status(404).json({ error: 'Order not found' });
